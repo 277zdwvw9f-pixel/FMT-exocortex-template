@@ -7,6 +7,10 @@
 
 ## 1. Форкни и установи (5 мин)
 
+> **Терминал** — это программа для ввода текстовых команд.
+> - **macOS:** `Cmd + Пробел` → набери `Terminal` → Enter. Или: Finder → Программы → Утилиты → Терминал.
+> - **Windows:** сначала установи [WSL](https://learn.microsoft.com/ru-ru/windows/wsl/install), затем Пуск → `Ubuntu` → Enter.
+
 ```bash
 mkdir -p ~/IWE && cd ~/IWE
 gh repo fork TserenTserenov/FMT-exocortex-template --clone
