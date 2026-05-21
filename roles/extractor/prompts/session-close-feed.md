@@ -46,7 +46,7 @@
 Для каждого кандидата — добавить ###-блок в **конец** `captures.md` (после существующих записей):
 
 ```markdown
-### {Краткое название мысли} [feed:session-close YYYY-MM-DD]
+### {Краткое название мысли} [feed:session-close YYYY-MM-DD HH:MM]
 **Источник:** session-transcript {YYYY-MM-DD} + git diff за сессию
 **Тип:** {distinction|method|sota|fm|rule|entity|wp}
 **Цитата:** «{1-2 предложения из транскрипта или коммит-сообщения}»
@@ -55,11 +55,11 @@
 {1-3 строки контекста: где обсуждалось, какие альтернативы рассматривались}
 ```
 
-**Маркер `[feed:session-close YYYY-MM-DD]`** в заголовке — позволяет отличить feed-block от ручных capture'ов и от уже-обработанных. R2 в следующем `inbox-check` обработает его как обычный pending capture (без маркера `[analyzed]`/`[processed]`/`[duplicate]`/`[defer]`).
+**Маркер `[feed:session-close YYYY-MM-DD HH:MM]`** в заголовке — позволяет отличить feed-block от ручных capture'ов и от уже-обработанных. R2 в следующем `inbox-check` обработает его как обычный pending capture (без маркера `[analyzed]`/`[processed]`/`[duplicate]`/`[defer]`).
 
 ### Шаг 4: Идемпотентность
 
-Перед записью — проверить, нет ли уже capture с тем же содержанием за сегодня (по `[feed:session-close YYYY-MM-DD]` + cosine-сходство названий). Если есть — пропустить.
+Перед записью — проверить, нет ли в captures.md capture с ТОЧНО таким же названием и тем же маркером `[feed:session-close YYYY-MM-DD HH:MM]`. Если есть — пропустить (дубликат в рамках той же сессии). Captures от других сессий того же дня (другой HH:MM) — НЕ считать дубликатами, записывать.
 
 ### Шаг 5: Коммит
 
