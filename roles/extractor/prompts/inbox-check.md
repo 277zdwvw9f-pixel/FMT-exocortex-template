@@ -22,7 +22,9 @@
 
 ### Шаг 0: Прочитать конфигурацию
 
-1. Прочитай `{{WORKSPACE_DIR}}/FMT-exocortex-template/roles/extractor/config/routing.md` — таблицы маршрутизации.
+1. **Маршрутизация (override → fallback).**
+   - Если существует `{{WORKSPACE_DIR}}/extensions/extractor-routing.md` — прочитай его: §1 (Pack-репо по домену) бери ОТСЮДА (локальные паки пользователя).
+   - Прочитай `{{WORKSPACE_DIR}}/FMT-exocortex-template/roles/extractor/config/routing.md` — §2–6 (типы, именование, DS-routing, feedback) всегда отсюда. Если override отсутствует — §1 тоже отсюда (плейсхолдер).
 2. Прочитай `{{WORKSPACE_DIR}}/{{GOVERNANCE_REPO}}/inbox/feedback-log.md` — лог отклонённых кандидатов (пишет R15 через /apply-captures). Если capture похож на ранее отклонённый → пропусти. Если файл не существует — продолжай без него.
 
 ### Шаг 1: Проверить inbox (WP-247 Ф-MULTI-SOURCE.3 — два канала)
