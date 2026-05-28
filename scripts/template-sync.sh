@@ -1,4 +1,6 @@
 #!/bin/bash
+# routing: utility  deterministic=true
+# see DP.SC.159, DP.ROLE.059
 # template-sync.sh — синхронизация CLAUDE.md из авторского IWE в FMT-exocortex-template
 #
 # Flow: $IWE_WORKSPACE/CLAUDE.md → placeholder sub → strip §9 авторское → FMT/CLAUDE.md
@@ -10,11 +12,16 @@
 
 set -euo pipefail
 
-# Guard: валидация IWE_TEMPLATE (не должна быть временной директорией)
+# Guard: валидация IWE_TEMPLATE и IWE_WORKSPACE (не должны быть временными директориями)
 if [[ "${IWE_TEMPLATE:-}" =~ ^/tmp/iwe-smoke ]]; then
     echo "[ERROR] IWE_TEMPLATE указывает на удалённую smoke-тестовую директорию: $IWE_TEMPLATE" >&2
     echo "Используется fallback: \$HOME/IWE/FMT-exocortex-template" >&2
     unset IWE_TEMPLATE
+fi
+if [[ "${IWE_WORKSPACE:-}" =~ ^/tmp/iwe-smoke ]]; then
+    echo "[ERROR] IWE_WORKSPACE указывает на удалённую smoke-тестовую директорию: $IWE_WORKSPACE" >&2
+    echo "Используется fallback: \$HOME/IWE" >&2
+    unset IWE_WORKSPACE
 fi
 
 IWE="${IWE_WORKSPACE:-$HOME/IWE}"
@@ -83,5 +90,19 @@ fi
 
 printf '%s\n' "$result" > "$FMT"
 echo "✅ Синхронизировано: CLAUDE.md → FMT/CLAUDE.md"
+
+# 5. Валидация FMT/scripts/ на личные хардкоды
+VALIDATOR="$FMT_DIR/scripts/validate-fmt-scripts.sh"
+if [ -f "$VALIDATOR" ]; then
+    echo ""
+    bash "$VALIDATOR" "$FMT_DIR/scripts" || {
+        echo "⚠️  Личные хардкоды в FMT/scripts/ — исправить до коммита" >&2
+    }
+fi
+
+CHANGELOG_SCRIPT="$FMT_DIR/scripts/changelog-append.sh"
+[[ -f "$CHANGELOG_SCRIPT" ]] && bash "$CHANGELOG_SCRIPT" || true
+
+echo ""
 echo "Следующий шаг:"
-echo "  cd $FMT_DIR && git diff CLAUDE.md && git add CLAUDE.md && git commit"
+echo "  cd $FMT_DIR && git diff CLAUDE.md && git add CLAUDE.md CHANGELOG.md && git commit"

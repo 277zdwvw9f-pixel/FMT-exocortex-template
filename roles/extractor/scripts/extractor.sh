@@ -148,9 +148,7 @@ $extra_args"
             log "No new changes to commit in $_gov_repo"
         fi
 
-        local _cur_branch
-        _cur_branch=$(git -C "$strategy_dir" symbolic-ref --short HEAD 2>/dev/null || echo main)
-        if ! git -C "$strategy_dir" diff --quiet "origin/$_cur_branch"..HEAD 2>/dev/null; then
+        if ! git -C "$strategy_dir" diff --quiet origin/main..HEAD 2>/dev/null; then
             git -C "$strategy_dir" push >> "$LOG_FILE" 2>&1 && log "Pushed $_gov_repo" || log "WARN: git push failed"
         fi
     fi
