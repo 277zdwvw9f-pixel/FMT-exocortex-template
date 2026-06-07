@@ -55,7 +55,9 @@
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 
-set -euo pipefail
+set -uo pipefail
+# Намеренно без -e: диагностический скрипт должен продолжать работу даже если
+# du/stat на iCloud-файле возвращает ненулевой код (eviction, sync-задержка).
 
 # ---------- Конфигурация ----------
 IWE_ROOT="${IWE_ROOT:-$HOME/IWE}"
@@ -115,6 +117,12 @@ if [ "$CHECK_ICLOUD" -eq 1 ]; then
     if [ ! -d "$ICLOUD_DIR" ]; then
         crit "Директория iCloud не найдена: $ICLOUD_DIR"
         CRITICALS=$((CRITICALS + 1))
+    elif ! ls "$ICLOUD_DIR/" >/dev/null 2>&1; then
+        # macOS TCC: нет Full Disk Access → find/ls не могут читать iCloud Drive
+        warn "iCloud директория недоступна для чтения (нужен Full Disk Access)."
+        info "Выдать разрешение: System Settings → Privacy & Security → Full Disk Access → добавить Terminal/Claude Code."
+        info "Бэкап создаётся нормально (write работает), проверка невозможна."
+        WARNINGS=$((WARNINGS + 1))
     else
         # Последний архив
         LATEST=$(find "$ICLOUD_DIR" -maxdepth 1 -name 'IWE-backup-*.tar.gz' -type f 2>/dev/null | sort | tail -1)

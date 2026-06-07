@@ -43,7 +43,7 @@ done
 
 **Календарь недели:**
 ```bash
-bash {{WORKSPACE_DIR}}/scripts/server-calendar.sh --week $(date -v-mon +%Y-%m-%d 2>/dev/null || date -d "last monday" +%Y-%m-%d)
+bash ${IWE_SCRIPTS}/server-calendar.sh --week $(date -v-mon +%Y-%m-%d 2>/dev/null || date -d "last monday" +%Y-%m-%d)
 ```
 Сверить запланированные встречи/задачи с фактом: что состоялось, что перенеслось, что отменилось. Для задач с отчётами (🔧 backup stress-test и т.п.) — проверить наличие артефакта.
 
@@ -77,20 +77,15 @@ bash {{WORKSPACE_DIR}}/scripts/server-calendar.sh --week $(date -v-mon +%Y-%m-%d
 > **Зачем:** carry-over §5 работает на уровне РП (status: in_progress → перенос). Pending **фазы** внутри Ф-таблиц context-файлов могут потеряться: если родительский РП в `in_progress` — pending-фаза не выделяется автоматически; если родительский ушёл в `done` — фаза теряется вместе с context-файлом.
 
 ```bash
-bash ${IWE_SCRIPTS}/pending-phases-sweep.sh
+# Если скрипт есть — использовать его:
+bash ${IWE_SCRIPTS}/pending-phases-sweep.sh 2>/dev/null || \
+  grep -l "status: in_progress" {{WORKSPACE_DIR}}/{{GOVERNANCE_REPO}}/inbox/WP-*.md 2>/dev/null \
+  | xargs -I{} sh -c 'echo "=== {} ===" && grep -E "- \[ \].*Ф[0-9]|⏳.*pending" "{}" || true'
 ```
 
-Скрипт обходит все `{{WORKSPACE_DIR}}/{{GOVERNANCE_REPO}}/inbox/WP-*.md` со `status: in_progress` (или без явного status), извлекает строки Ф-таблицы со статусом `⏳ pending` / `pending`, выводит сводку формата:
-
-```
-WP-NNN: pending-фазы (M):
-  Фx — <описание фазы>
-  Фy — <описание фазы>
-```
+> `pending-phases-sweep.sh` — опциональный скрипт. Если отсутствует, автоматически используется fallback-grep.
 
 Для каждой pending-фазы решить: **(a)** делать на этой неделе → добавить в W{N+1} как явный пункт; **(b)** переоценить (блокер? устарела?); **(c)** оставить как есть (если ожидание внешнего события — записать ожидаемый триггер).
-
-Если скрипта нет — fallback: `grep -l "status: in_progress" {{WORKSPACE_DIR}}/{{GOVERNANCE_REPO}}/inbox/WP-*.md` → для каждого `grep -E "⏳.*pending|Ф[0-9]+.*pending"`.
 
 ### 6. Captures и уроки
 

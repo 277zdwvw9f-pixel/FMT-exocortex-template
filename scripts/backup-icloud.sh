@@ -6,7 +6,9 @@
 # Хранит последние 4 архива, удаляет старые.
 # Платформа: macOS с iCloud Drive.
 
-set -euo pipefail
+set -uo pipefail
+# Намеренно без -e: ls на iCloud-файл может вернуть 1 пока идёт синхронизация,
+# что ложно прерывало скрипт после успешного создания архива.
 
 IWE_DIR="${WORKSPACE_DIR:-$HOME/IWE}"
 ICLOUD_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/IWE-backups"
@@ -48,4 +50,4 @@ if [ "$TOTAL" -gt "$MAX_BACKUPS" ]; then
 fi
 
 echo "📊 Текущие бэкапы в iCloud:"
-ls -lh IWE-backup-*.tar.gz 2>/dev/null
+ls -lh IWE-backup-*.tar.gz 2>/dev/null || true
