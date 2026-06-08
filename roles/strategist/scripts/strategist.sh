@@ -165,7 +165,11 @@ ${prompt}"
     fi
     # NB: --dangerously-skip-permissions не используется — Claude Code блокирует флаг
     # под root/sudo (Linux cron). --allowedTools задаёт явный whitelist, чего достаточно.
-    timeout "$CLAUDE_TIMEOUT" "$CLAUDE_PATH" \
+    # macOS: caffeinate не даёт машине уснуть во время сессии (WP-015, 8 июня).
+    # На Linux/сервере caffeinate отсутствует → массив пустой, вызов без префикса.
+    local caffeinate=()
+    command -v caffeinate >/dev/null 2>&1 && caffeinate=(caffeinate -i -s)
+    "${caffeinate[@]}" timeout "$CLAUDE_TIMEOUT" "$CLAUDE_PATH" \
         "${model_args[@]}" \
         --allowedTools "Read,Write,Edit,Glob,Grep,Bash" \
         -p "$prompt" \
@@ -371,8 +375,18 @@ case "$1" in
         log "Manual: running strategy session (interactive)"
         run_claude "strategy-session"
         ;;
+    "scout")
+        acquire_lock "scout"
+        if already_ran_today "scout"; then
+            log "SKIP: scout already completed today"
+            exit 0
+        fi
+        log "Scout: running daily reconnaissance"
+        run_claude "scout" "claude-sonnet-4-6"
+        notify_telegram "scout"
+        ;;
     *)
-        echo "Usage: $0 {morning|note-review|week-review|session-prep|strategy-session|day-plan|day-close}"
+        echo "Usage: $0 {morning|note-review|week-review|session-prep|strategy-session|day-plan|day-close|scout}"
         echo ""
         echo "Scenarios:"
         echo "  morning           - 4:00 EET daily (session-prep on Mon, day-plan others)"
@@ -382,6 +396,7 @@ case "$1" in
         echo "  strategy-session  - Manual strategy session (interactive with user)"
         echo "  day-plan          - Manual day plan"
         echo "  day-close         - Manual day close (update WeekPlan + MEMORY + backup)"
+        echo "  scout             - Daily reconnaissance (web sources → inbox/agent/scout/)"
         exit 1
         ;;
 esac
