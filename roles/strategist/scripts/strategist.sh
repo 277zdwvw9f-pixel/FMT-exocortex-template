@@ -165,11 +165,13 @@ ${prompt}"
     fi
     # NB: --dangerously-skip-permissions не используется — Claude Code блокирует флаг
     # под root/sudo (Linux cron). --allowedTools задаёт явный whitelist, чего достаточно.
-    # macOS: caffeinate не даёт машине уснуть во время сессии (WP-015, 8 июня).
-    # На Linux/сервере caffeinate отсутствует → массив пустой, вызов без префикса.
-    local caffeinate=()
-    command -v caffeinate >/dev/null 2>&1 && caffeinate=(caffeinate -i -s)
-    "${caffeinate[@]}" timeout "$CLAUDE_TIMEOUT" "$CLAUDE_PATH" \
+    # macOS: caffeinate держит «не спать» на время сессии (WP-015, 8 июня).
+    # Фоном с -w $$ — ассерция снимается при выходе скрипта. НЕ префиксом: timeout
+    # здесь shell-функция (perl-fallback), а caffeinate-префикс искал бы бинарник → rc 127.
+    if command -v caffeinate >/dev/null 2>&1; then
+        caffeinate -i -s -w $$ &
+    fi
+    timeout "$CLAUDE_TIMEOUT" "$CLAUDE_PATH" \
         "${model_args[@]}" \
         --allowedTools "Read,Write,Edit,Glob,Grep,Bash" \
         -p "$prompt" \
