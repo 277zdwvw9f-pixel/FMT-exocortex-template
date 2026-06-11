@@ -1,6 +1,6 @@
 ---
 name: strategy-session
-description: Стратегическая сессия — диспетчер. День-0 (нет Strategy.md/WeekPlan) → initial flow (цели, неудовлетворённости, первый WeekPlan). День-1+ → weekly flow (требует черновик от session-prep). Триггеры — «проведём стратегическую сессию», «первая стратегическая сессия», «strategy session», «давай стратегировать».
+description: Strategy session — dispatcher. Day 0 (no Strategy.md/WeekPlan) → initial flow (goals, dissatisfactions, first WeekPlan). Day 1+ → weekly flow (requires draft from session-prep). Triggers: 'run strategy session', 'first strategy session', 'strategy session', 'let's strategize'.
 version: 1.0.0
 layer: L1
 status: active
@@ -26,7 +26,7 @@ routing:
 | Состояние | Режим | Куда дальше |
 |-----------|-------|-------------|
 | Нет ни Strategy.md, ни WeekPlan | **initial** (день-0) | §2 этого файла |
-| Есть Strategy.md и/или WeekPlan со `status: draft` | **weekly** | `roles/strategist/prompts/strategy-session.md` |
+| Есть Strategy.md и/или WeekPlan со `status: draft` | **weekly** | `roles/strategist/prompts/strategy-session-weekly.md` |
 | Есть Strategy.md, но нет draft WeekPlan | weekly без draft | сообщи пользователю: «нет черновика, запустить session-prep?» |
 
 ---
@@ -95,6 +95,23 @@ routing:
 
 **Цель шага:** Backlog не должен превращаться в dead inventory. Каждый Strategy Session — явная сверка триггеров.
 
-### 3.2 Делегирование в роль Стратега
+### 3.2 Распаковка R1: discovery (Стратег) → планирование (Плановик)
 
-Загрузи `{{IWE_TEMPLATE}}/roles/strategist/prompts/strategy-session.md` и следуй ему.
+> **Роль R1 распакована (РП378):** Стратег ведёт WHAT/WHY (discovery неудовлетворённостей,
+> состояние, приоритеты месяца), Плановик (DP.ROLE.066) — HOW MUCH/WHEN (упаковка в неделю,
+> бюджеты, WIP, дни). Граница — по типу решения, не по артефакту.
+
+**Режим discovery (Стратег, этапы 1-4 — НЭП → приоритеты).**
+Если приоритеты месяца устарели ИЛИ состояние пилота изменилось ИЛИ это первый месяц —
+сначала разговор-распаковка: запусти `/discovery-session` (метод DP.METHOD.053). На выходе —
+state-card + 3 топ-неудовлетворённости + ранжированные приоритеты месяца + ТОС-месяца. Это
+**контекст приоритетов**, передаётся в планирование.
+
+**Режим планирования (Плановик, этапы 5-6 — упаковка недели/дня).**
+Если приоритеты актуальны (discovery не нужен) — Плановик ведёт неделю один (совместный
+ритуал DP.SC.051). Загрузи `{{IWE_TEMPLATE}}/roles/strategist/prompts/strategy-session-weekly.md`
+и следуй ему: упакуй контекст приоритетов в WeekPlan с бюджетами, распредели по дням, держи
+WIP-лимит (8-15).
+
+**Связка:** discovery даёт контекст приоритетов → планирование его упаковывает. Стратег
+подключается к недельному ритуалу только при триггере пересмотра; иначе — Плановик один.

@@ -21,6 +21,15 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 # IWE_WORKSPACE / IWE_GOVERNANCE_REPO задаются в /etc/iwe/env или ~/.config/aist/env.
 WORKSPACE="${IWE_WORKSPACE:-$HOME/IWE}/${IWE_GOVERNANCE_REPO:-DS-strategy}"
 
+# issue #17: load NOTIFY_SH_PATH from params.yaml if not already set in environment
+if [ -z "${NOTIFY_SH_PATH:-}" ]; then
+    _params="${IWE_WORKSPACE:-$HOME/IWE}/params.yaml"
+    if [ -f "$_params" ]; then
+        _notify_val=$(grep -E '^notify_sh_path:' "$_params" | sed 's/^notify_sh_path:[[:space:]]*//;s/^"//;s/"$//;s/^'"'"'//;s/'"'"'$//' | tr -d '[:space:]')
+        [ -n "$_notify_val" ] && export NOTIFY_SH_PATH="$_notify_val"
+    fi
+fi
+
 # Guard: IWE_GOVERNANCE_REPO mismatch (Claude peer-review, 2026-05-26)
 EXPECTED_GOV=$(grep 'IWE_GOVERNANCE_REPO=' "$HOME/.iwe-paths" 2>/dev/null | sed 's/.*="//;s/"$//' || echo "DS-strategy")
 if [ "${IWE_GOVERNANCE_REPO:-}" ] && [ "$IWE_GOVERNANCE_REPO" != "$EXPECTED_GOV" ]; then
@@ -92,7 +101,12 @@ log() {
 notify() {
     local title="$1"
     local message="$2"
-    printf 'display notification "%s" with title "%s"' "$message" "$title" | osascript 2>/dev/null || true
+    # issue #17: NOTIFY_SH_PATH override for Linux/Docker (set in params.yaml or .exocortex.env)
+    if [ -n "${NOTIFY_SH_PATH:-}" ] && [ -x "$NOTIFY_SH_PATH" ]; then
+        "$NOTIFY_SH_PATH" "$title" "$message" 2>/dev/null || true
+    else
+        printf 'display notification "%s" with title "%s"' "$message" "$title" | osascript 2>/dev/null || true
+    fi
 }
 
 notify_telegram() {
@@ -165,12 +179,6 @@ ${prompt}"
     fi
     # NB: --dangerously-skip-permissions не используется — Claude Code блокирует флаг
     # под root/sudo (Linux cron). --allowedTools задаёт явный whitelist, чего достаточно.
-    # macOS: caffeinate держит «не спать» на время сессии (WP-015, 8 июня).
-    # Фоном с -w $$ — ассерция снимается при выходе скрипта. НЕ префиксом: timeout
-    # здесь shell-функция (perl-fallback), а caffeinate-префикс искал бы бинарник → rc 127.
-    if command -v caffeinate >/dev/null 2>&1; then
-        caffeinate -i -s -w $$ &
-    fi
     timeout "$CLAUDE_TIMEOUT" "$CLAUDE_PATH" \
         "${model_args[@]}" \
         --allowedTools "Read,Write,Edit,Glob,Grep,Bash" \
@@ -377,18 +385,8 @@ case "$1" in
         log "Manual: running strategy session (interactive)"
         run_claude "strategy-session"
         ;;
-    "scout")
-        acquire_lock "scout"
-        if already_ran_today "scout"; then
-            log "SKIP: scout already completed today"
-            exit 0
-        fi
-        log "Scout: running daily reconnaissance"
-        run_claude "scout" "claude-sonnet-4-6"
-        notify_telegram "scout"
-        ;;
     *)
-        echo "Usage: $0 {morning|note-review|week-review|session-prep|strategy-session|day-plan|day-close|scout}"
+        echo "Usage: $0 {morning|note-review|week-review|session-prep|strategy-session|day-plan|day-close}"
         echo ""
         echo "Scenarios:"
         echo "  morning           - 4:00 EET daily (session-prep on Mon, day-plan others)"
@@ -398,7 +396,6 @@ case "$1" in
         echo "  strategy-session  - Manual strategy session (interactive with user)"
         echo "  day-plan          - Manual day plan"
         echo "  day-close         - Manual day close (update WeekPlan + MEMORY + backup)"
-        echo "  scout             - Daily reconnaissance (web sources → inbox/agent/scout/)"
         exit 1
         ;;
 esac
