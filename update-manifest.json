@@ -985,7 +985,6 @@
     }
   ],
   "excluded_paths": [
-    ".claude/skills/diagnose-iwe/SKILL.md",
     "AGENTS-agent-blocks.md",
     "docs/BROWSER-CI-TEMPLATE.md",
     "docs/developer/README.md",
