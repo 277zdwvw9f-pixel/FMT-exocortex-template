@@ -182,7 +182,10 @@ registry_status() {
     return
   fi
   local line
-  line=$(grep -E "WP-${num}[^0-9]" "$REGISTRY_FILE" 2>/dev/null | head -1 || true)
+  # Первая колонка реестра: голое число (18), с префиксом (WP-018), в тильдах (~~7~~)
+  # и/или в жирном (**WP-017**). Якорь на начало строки — иначе номер ловится
+  # из колонки «Репо» (inbox/WP-18-*.md) и статус читается с чужой строки.
+  line=$(grep -E "^\|[[:space:]]*(\*\*)?~*(WP-)?0*${num}~*(\*\*)?[[:space:]]*\|" "$REGISTRY_FILE" 2>/dev/null | head -1 || true)
   if [[ -z "$line" ]]; then
     echo "_не в реестре_"
     return

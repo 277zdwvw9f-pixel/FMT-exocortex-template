@@ -1063,6 +1063,7 @@
     "scripts/kimi-peer-adapter.sh",
     "scripts/lesson-close.sh",
     "scripts/llm-proxy-launcher.sh",
+    "scripts/md_table_insert.py",
     "scripts/memory-active-wp-update.sh",
     "scripts/memory-bleed.sh",
     "scripts/memory-health.sh",
