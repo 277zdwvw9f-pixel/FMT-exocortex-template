@@ -83,10 +83,13 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 
 
-## [Unreleased] — обновлено 2026-07-08
+
+## [Unreleased] — обновлено 2026-07-09
 
 ### Added
 
+- `2381d7f` feat(wp-7): promote 6 day-open scripts + fix scaffold drift + seed new-user scripts
+- `927808b` feat(wp-7): promote 6 day-open scripts + fix scaffold drift + seed new-user scripts
 - `1c71664` feat: promote day-open-pipeline.sh entry point (WP-7 FMT-PROMOTE-DAYOPEN1)
 - `c428393` feat(canon-sync): add iwesys/MimEcoSys publish jobs to translate-sync workflow
 - `a100fa6` feat: promote iwe-bug-report.sh to platform (WP-5 sub-#3)
@@ -98,6 +101,7 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `039ccf8` chore(hygiene): untrack .DS_Store, добавить в .gitignore
 - `bdb2c9b` docs(changelog): thank users for #229/#228 reports, sync Unreleased section
 - `5b72787` rename(canon-sync): target repo iwesys/FMT-exocortex-template-en -> iwesys/iwe-template
 - `5bce5e3` revert(canon-sync): drop MimEcoSys mirror job — wrong repo scope
@@ -108,6 +112,7 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `41c20fe` fix(translate-sync): attribute EN commits to the human source author, not a bot
 - `726fa80` fix(ci): restore scripts/iwe-bug-report.sh dropped from manifest by 7ae267a
 - `7ae267a` fix(#229,#228): protect owner:user memory files from stale-repair, add hot-budget validator
 - `c828396` fix(canon-sync): persist-credentials false on en-draft checkout
@@ -129,6 +134,7 @@ Versioning: [Semantic Versioning](https://semver.org/).
 - `84858e4` fix(release): sync-version-badge.sh --fix broken on macOS BSD sed + README badge drift
 - `0b5e140` fix(extractor): guard против запуска сырого файла шаблона + правка примеров
 - `b4d08a2` fix(v0.35.5): orphan-detection TypeError + DS-strategy validator + root detection (#214 #215)
+- `212fa2f` fix(setup): include rules-lazy in dry-run and section message
 
 
 ## [0.35.5] — 2026-06-30

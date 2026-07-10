@@ -72,29 +72,26 @@ gates_rationale: "операционный скилл; WP Gate применим 
 
 ## Шаг 4. Запись — запустить `scripts/create-wp.sh`
 
-Скрипт `scripts/create-wp.sh` пишет в **4 файла**:
+Все шаги ниже автоматизированы скриптом `scripts/create-wp.sh`. Скрипт пишет в 5 мест:
 
 1. **`inbox/WP-{N}-{slug}.md`** → context file
 2. **`archive/wp-contexts/WP-{N}-{slug}.md`** → заготовка §Закрытия (stub с frontmatter)
 3. **`docs/WP-REGISTRY.md`** → новая строка таблицы
 4. **`current/WeekPlan W{N}…md`** → новая строка в таблице РП
+5. **`current/active-wp.md`** → пересобирается автоматически (`build-active-wp.py`)
 
-Строки в REGISTRY и WeekPlan собираются по **именам колонок** (`md_table_insert.py`), поэтому схема таблицы может быть любой: номер с префиксом `WP-` или без, 4 колонки или 8. Неизвестные колонки заполняются прочерком.
-
-**Вручную после скрипта (5-е место):**
-- **Linear issue** — через MCP: `create_issue title='WP-{N} {Название}' teamId=TSR`. Linear MCP не подключён — пропустить и отметить в отчёте.
-- **`docs/Strategy.md` § «РП → Результаты»** — только для РП ≥3h. Флага автовставки у скрипта нет, добавлять вручную.
+**Вручную после скрипта:**
+- **Linear issue** — через MCP: `create_issue title='WP-{N} {Название}' teamId=TSR`
+- **`docs/Strategy.md` § «РП → Результаты»** — только для РП ≥3h. Передать `--result R{N}` скрипту для автовставки; без флага — добавить вручную.
 
 **Синтаксис скрипта:**
 ```bash
-# WP Gate — consent обязателен. Путь: $IWE_ROOT/.claude/state (НЕ ~/.claude/state)
-touch "${IWE_ROOT:-$HOME/IWE}/.claude/state/wp-consent-{N}"
-
+touch ~/.claude/state/wp-consent-{N}   # WP Gate — обязательно перед запуском
 bash scripts/create-wp.sh \
   --title "Название РП" \
   --budget 5h \
   --priority P2 \
-  --slug my-slug \     # необязательно; иначе транслит из title
+  --result R3 \        # необязательно; если ≥3h — передать для автовставки в Strategy.md
   --repo "DS-repo"     # необязательно
 ```
 

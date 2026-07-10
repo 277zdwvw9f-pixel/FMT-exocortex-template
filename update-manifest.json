@@ -453,6 +453,9 @@
       "path": "docs/migrations/strategy-v0.27.0.md"
     },
     {
+      "path": "docs/onboarding/architecture-layers.md"
+    },
+    {
       "path": "docs/onboarding/iwe-layers.md"
     },
     {
@@ -1042,7 +1045,6 @@
     "scripts/delivery_checks.py",
     "scripts/fmt-critical-alert.sh",
     "scripts/generate-catalogs.py",
-    "scripts/generate-day-report.sh",
     "scripts/generate-diagnose-skill.py",
     "scripts/generate-executor-catalog.py",
     "scripts/generate-helper-catalog.py",
@@ -1063,7 +1065,6 @@
     "scripts/kimi-peer-adapter.sh",
     "scripts/lesson-close.sh",
     "scripts/llm-proxy-launcher.sh",
-    "scripts/md_table_insert.py",
     "scripts/memory-active-wp-update.sh",
     "scripts/memory-bleed.sh",
     "scripts/memory-health.sh",
