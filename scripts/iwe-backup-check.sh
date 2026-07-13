@@ -55,15 +55,17 @@
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 
-set -uo pipefail
-# Намеренно без -e: диагностический скрипт должен продолжать работу даже если
-# du/stat на iCloud-файле возвращает ненулевой код (eviction, sync-задержка).
+set -euo pipefail
+
+# Load unified environment: IWE_OS, IWE_ROOT, IWE_ICLOUD_BACKUP_DIR, etc.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../.claude/lib/iwe-env-bootstrap.sh" || exit 1
 
 # ---------- Конфигурация ----------
-IWE_ROOT="${IWE_ROOT:-$HOME/IWE}"
 WARN_DAYS=7
 CRITICAL_DAYS=14
-CHECK_ICLOUD=1
+# Auto-disable iCloud check on non-macOS; can be overridden via --no-icloud
+[ "$IWE_OS" = "macos" ] && CHECK_ICLOUD=1 || CHECK_ICLOUD=0
 
 # ---------- Аргументы ----------
 while [ $# -gt 0 ]; do
@@ -109,7 +111,7 @@ CRITICALS=0
 # ---------- Раздел 1: iCloud-бэкапы ----------
 
 if [ "$CHECK_ICLOUD" -eq 1 ]; then
-    ICLOUD_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/IWE-backups"
+    ICLOUD_DIR="$IWE_ICLOUD_BACKUP_DIR"
 
     echo "## 1. iCloud-бэкапы"
     echo ""
@@ -117,12 +119,6 @@ if [ "$CHECK_ICLOUD" -eq 1 ]; then
     if [ ! -d "$ICLOUD_DIR" ]; then
         crit "Директория iCloud не найдена: $ICLOUD_DIR"
         CRITICALS=$((CRITICALS + 1))
-    elif ! ls "$ICLOUD_DIR/" >/dev/null 2>&1; then
-        # macOS TCC: нет Full Disk Access → find/ls не могут читать iCloud Drive
-        warn "iCloud директория недоступна для чтения (нужен Full Disk Access)."
-        info "Выдать разрешение: System Settings → Privacy & Security → Full Disk Access → добавить Terminal/Claude Code."
-        info "Бэкап создаётся нормально (write работает), проверка невозможна."
-        WARNINGS=$((WARNINGS + 1))
     else
         # Последний архив
         LATEST=$(find "$ICLOUD_DIR" -maxdepth 1 -name 'IWE-backup-*.tar.gz' -type f 2>/dev/null | sort | tail -1)
@@ -168,7 +164,7 @@ if [ "$CHECK_ICLOUD" -eq 1 ]; then
 else
     echo "## 1. iCloud-бэкапы"
     echo ""
-    info "Пропущено (--no-icloud)"
+    info "N/A (платформа: $IWE_OS — iCloud доступен только на macOS)"
     echo ""
 fi
 

@@ -24,15 +24,27 @@ set -uo pipefail
 
 MODE="all"
 SCRIPTS_DIR=""
+FILES=()
+MODE_FILES=0
 for arg in "$@"; do
     case "$arg" in
         --scripts)       MODE="scripts" ;;
         --settings-json) MODE="settings-json" ;;
         --all)           MODE="all" ;;
-        *)               SCRIPTS_DIR="$arg" ;;
+        --files)         MODE_FILES=1 ;;   # FMT7 (#150): последующие позиционные = конкретные файлы
+        *)
+            if [ "$MODE_FILES" = "1" ] && [ -f "$arg" ]; then
+                FILES+=("$arg")
+            else
+                SCRIPTS_DIR="$arg"
+            fi ;;
     esac
 done
 SCRIPTS_DIR="${SCRIPTS_DIR:-$(dirname "$0")}"
+if [ ${#FILES[@]} -eq 0 ] && [ ! -d "$SCRIPTS_DIR" ]; then
+    echo "validate-fmt-scripts: SCRIPTS_DIR должна быть директорией: $SCRIPTS_DIR" >&2
+    exit 1
+fi
 FMT_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
 AUTHOR_HOME="${HOME}"
 AUTHOR_GOV_REPO="${IWE_GOVERNANCE_REPO:-DS-strategy}"
@@ -41,7 +53,13 @@ errors=0
 checked=0
 
 if [[ "$MODE" != "settings-json" ]]; then
-    for f in "$SCRIPTS_DIR"/*.sh "$SCRIPTS_DIR"/*.py; do
+    # FMT7: переданы конкретные файлы (--files) → проверять только их, иначе весь каталог
+    if [ ${#FILES[@]} -gt 0 ]; then
+        TARGETS=("${FILES[@]}")
+    else
+        TARGETS=("$SCRIPTS_DIR"/*.sh "$SCRIPTS_DIR"/*.py)
+    fi
+    for f in "${TARGETS[@]}"; do
         [[ -f "$f" ]] || continue
         fname=$(basename "$f")
         # Не проверять сам себя
@@ -69,7 +87,7 @@ if [[ "$MODE" != "settings-json" ]]; then
                 | grep -v '^\s*#\|^[0-9]*:\s*#' \
                 | grep -v '\${[^}]*:-' \
                 | grep -v '\${[^}]*:?' \
-                | grep -v 'GOV_REPO_TMPL=' \
+                | grep -vE '^[0-9]*:[[:space:]]*[A-Z_]+_TMPL=' \
                 | grep -vE "os\.environ\.get\([^)]*,[[:space:]]*[\"']" \
                 | grep -vE '^[0-9]*:\s*[A-Z_][A-Z0-9_]*="[^"]*"[[:space:]]*[\\]$' \
                 || true)
@@ -144,6 +162,18 @@ if [[ "$MODE" != "scripts" && "$MODE" != "settings-json" ]]; then
         if [[ $skills_checked -gt 0 ]]; then
             checked=$((checked + skills_checked))
         fi
+
+        # Проверка 6: L1 SKILL.md files must carry USER-SPACE marker block
+        while IFS= read -r -d '' md_file; do
+            fname="${md_file#$FMT_ROOT/}"
+            if grep -qE '^layer:[[:space:]]*L1' "$md_file" 2>/dev/null; then
+                if ! grep -q '^<!-- USER-SPACE -->' "$md_file" 2>/dev/null; then
+                    echo "  ❌ $fname: L1 SKILL.md без маркера <!-- USER-SPACE -->" >&2
+                    echo "     → Запусти: bash \$IWE_SCRIPTS/add-skill-markers.sh" >&2
+                    errors=$((errors + 1))
+                fi
+            fi
+        done < <(find "$SKILLS_DIR" -name "SKILL.md" -print0 2>/dev/null)
     fi
 fi
 

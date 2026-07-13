@@ -6,19 +6,25 @@
 # Хранит последние 4 архива, удаляет старые.
 # Платформа: macOS с iCloud Drive.
 
-set -uo pipefail
-# Намеренно без -e: ls на iCloud-файл может вернуть 1 пока идёт синхронизация,
-# что ложно прерывало скрипт после успешного создания архива.
+set -euo pipefail
 
-IWE_DIR="${WORKSPACE_DIR:-$HOME/IWE}"
-ICLOUD_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/IWE-backups"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../.claude/lib/iwe-env-bootstrap.sh" || exit 1
+
+IWE_DIR="${WORKSPACE_DIR}"
+ICLOUD_DIR="$IWE_ICLOUD_BACKUP_DIR"
 DATE=$(date +%Y%m%d-%H%M)
 ARCHIVE="IWE-backup-${DATE}.tar.gz"
 MAX_BACKUPS=4
 
-# Проверка iCloud
-if [ ! -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ]; then
-    echo "❌ iCloud Drive не найден. Убедитесь что iCloud Drive включён в System Settings."
+# Проверка платформы и iCloud
+if [ "$IWE_OS" != "macos" ] || [ -z "$ICLOUD_DIR" ]; then
+    echo "❌ backup-icloud.sh требует macOS с iCloud Drive (текущая платформа: $IWE_OS)."
+    exit 1
+fi
+
+if [ ! -d "$IWE_ICLOUD_ROOT" ]; then
+    echo "❌ iCloud Drive не найден ($IWE_ICLOUD_ROOT). Убедитесь что iCloud Drive включён в System Settings."
     exit 1
 fi
 
@@ -50,4 +56,4 @@ if [ "$TOTAL" -gt "$MAX_BACKUPS" ]; then
 fi
 
 echo "📊 Текущие бэкапы в iCloud:"
-ls -lh IWE-backup-*.tar.gz 2>/dev/null || true
+ls -lh IWE-backup-*.tar.gz 2>/dev/null

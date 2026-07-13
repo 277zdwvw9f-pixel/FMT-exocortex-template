@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# routing: helper  skill=wp-new  called-by=haiku
+# routing: helper  called-by=wp-gate  deterministic=true
 # see DP.SC.159, DP.ROLE.059
-# create-wp.sh — атомарное создание РП: context file, archive stub, REGISTRY,
-# WeekPlan (Linear — вручную, MCP-доступа у скрипта нет)
+# create-wp.sh — атомарное создание РП в 4 местах (inbox, REGISTRY, WeekPlan, Linear)
+# see WP-297 Ф6.2 (${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox/WP-297-wp-lifecycle-architecture.md)
 # see DP.M.010, DP.ROLE.037
 #
 # Использование:
@@ -10,7 +10,7 @@
 #   bash create-wp.sh --title "Название" --budget 5h --priority P3 --no-consent-check
 #
 # Предусловие: consent state file должен существовать:
-#   touch /IWE/.claude/state/wp-consent-{N}
+#   touch ${IWE:-$HOME/IWE}/.claude/state/wp-consent-{N}
 #
 # Совместимость: bash 3.2+ (macOS), bash 4+ (Linux)
 
@@ -30,6 +30,7 @@ PRIORITY="P3"
 SLUG=""
 REPO=""
 RELATED=""
+RESULT=""
 SKIP_CONSENT=0
 
 while [[ $# -gt 0 ]]; do
@@ -40,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --slug)     SLUG="$2";     shift 2 ;;
     --repo)     REPO="$2";     shift 2 ;;
     --related)  RELATED="$2";  shift 2 ;;
+    --result)   RESULT="$2";   shift 2 ;;
     --no-consent-check) SKIP_CONSENT=1; shift ;;
     *) echo "Неизвестный флаг: $1" >&2; exit 1 ;;
   esac
@@ -47,7 +49,7 @@ done
 
 # --- Валидация ---
 if [[ -z "$TITLE" || -z "$BUDGET" ]]; then
-  echo "Использование: $0 --title \"Название\" --budget 5h [--priority P3] [--slug slug] [--repo репо] [--related \"WP-NNN:тип\"]" >&2
+  echo "Использование: $0 --title \"Название\" --budget 5h [--priority P3] [--slug slug] [--repo репо] [--related \"WP-NNN:тип\"] [--result R3]" >&2
   exit 1
 fi
 
@@ -59,9 +61,8 @@ max_num = 0
 try:
     with open(registry, "r", encoding="utf-8") as f:
         for line in f:
-            # Первая колонка: | 297 | ~~297~~ | **WP-017** | WP-007 |
-            # Префикс WP- и ведущие нули опциональны — реестры ведутся по-разному.
-            m = re.match(r"^\|\s*(?:\*\*)?~*(?:WP-)?0*(\d+)~*(?:\*\*)?\s*\|", line)
+            # Ищем строки вида | 297 |, | ~~297~~ | или legacy-формат | WP-297 |
+            m = re.match(r"^\|\s*[*~]*(?:WP-)?(\d+)[*~]*\s*\|", line)
             if m:
                 n = int(m.group(1))
                 if n > max_num:
@@ -138,7 +139,7 @@ fi
 
 # --- Шаг 1: context file ---
 echo ""
-echo "1/5 context file..."
+echo "1/6 context file..."
 
 cat > "$WP_FILE" <<WPEOF
 ---
@@ -191,67 +192,159 @@ WPEOF
 
 echo "   ✅ $WP_FILE"
 
-# --- Шаг 2: archive/wp-contexts stub (§Закрытия) ---
-echo "2/5 archive stub..."
+# --- Шаг 2: archive stub ---
+echo "2/6 archive stub..."
 
 ARCHIVE_DIR="$STRATEGY/archive/wp-contexts"
-ARCHIVE_FILE="$ARCHIVE_DIR/WP-${WP_NUM}-${SLUG}.md"
-
-if [[ -f "$ARCHIVE_FILE" ]]; then
-  echo "   ⚠️  $ARCHIVE_FILE уже существует — не перезаписываю" >&2
-else
-  mkdir -p "$ARCHIVE_DIR"
-  cat > "$ARCHIVE_FILE" <<EOF
+ARCHIVE_STUB="$ARCHIVE_DIR/WP-${WP_NUM}-${SLUG}.md"
+cat > "$ARCHIVE_STUB" <<ARCHEOF
 ---
-type: wp-closure
 wp: ${WP_NUM}
-title: ${TITLE}
-status: pending
+title: "${TITLE}"
 created: ${TODAY}
+status: pending
 ---
 
-# WP-${WP_NUM} — Закрытие
+# WP-${WP_NUM}: ${TITLE} — §Закрытие
 
-> Заготовка. Заполняется при закрытии РП.
-
-## Что сделано
-
-## Что узнали
-
-## Метрики
-
-| Показатель | План | Факт |
-|------------|------|------|
-| Бюджет | ${BUDGET} | — |
-EOF
-  echo "   ✅ $ARCHIVE_FILE"
-fi
+*(заполняется при закрытии РП)*
+ARCHEOF
+echo "   ✅ $ARCHIVE_STUB"
 
 # --- Шаг 3: WP-REGISTRY.md ---
-echo "3/5 WP-REGISTRY.md..."
+echo "3/6 WP-REGISTRY.md..."
+
+python3 - "$REGISTRY" "$WP_NUM" "$PRIORITY" "$TITLE" "$REPO" "$BUDGET" "$GOV_REPO" <<'PYEOF'
+import sys
+registry_path, wp_num, priority, title, repo, budget, gov_repo = sys.argv[1:8]
+
+with open(registry_path, "r", encoding="utf-8") as f:
+    lines = f.readlines()
+
+# Найти строку-разделитель после заголовка таблицы (|---|---|...)
+insert_at = None
+for i, line in enumerate(lines):
+    if line.strip().startswith("|---") and i > 0 and lines[i-1].strip().startswith("| #"):
+        insert_at = i + 1
+        break
+
+if insert_at is None:
+    print("❌ Не найден заголовок таблицы REGISTRY", file=sys.stderr)
+    sys.exit(1)
+
+repo_cell = repo if repo else "{}/inbox/WP-{}-*.md".format(gov_repo, wp_num)
+new_row = "| {} | {} | **{}** | ⏳ | {} | {} |\n".format(
+    wp_num, priority, title, repo_cell, budget
+)
+lines.insert(insert_at, new_row)
+
+with open(registry_path, "w", encoding="utf-8") as f:
+    f.writelines(lines)
+
+print("   ✅ REGISTRY: строка {} добавлена".format(wp_num))
+PYEOF
+
+# --- Шаг 3: WeekPlan ---
+echo "4/6 WeekPlan..."
 
 WEEKPLAN=$(find "$STRATEGY/current" -maxdepth 1 -name "WeekPlan W*.md" 2>/dev/null | sort -r | head -1)
-WEEK=$(basename "${WEEKPLAN:-}" 2>/dev/null | sed -n 's/.*\(W[0-9]\{1,2\}\).*/\1/p')
-
-REPO_CELL="${REPO:-$GOV_REPO/inbox/WP-${WP_NUM}-*.md}"
-INSERT="$(dirname "$0")/md_table_insert.py"
-
-python3 "$INSERT" "$REGISTRY" registry \
-  "$WP_NUM" "$PRIORITY" "$TITLE" "$REPO_CELL" "$BUDGET" "${WEEK:---}"
-
-# --- Шаг 4: WeekPlan ---
-echo "4/5 WeekPlan..."
 
 if [[ -n "$WEEKPLAN" ]]; then
-  python3 "$INSERT" "$WEEKPLAN" weekplan \
-    "$WP_NUM" "$PRIORITY" "$TITLE" "${REPO:-$GOV_REPO}" "$BUDGET" "${WEEK:---}"
+  python3 - "$WEEKPLAN" "$WP_NUM" "$TITLE" "$PRIORITY" "$BUDGET" "$GOV_REPO" <<'PYEOF'
+import sys, re
+weekplan_path, wp_num, title, priority, budget, gov_repo = sys.argv[1:7]
+
+# Маппинг приоритета → светофор
+flag_map = {"P1": "🔴", "P2": "🟡", "P3": "🟢", "P4": "⚪", "P5": "⚪"}
+flag = flag_map.get(priority, "⚪")
+
+with open(weekplan_path, "r", encoding="utf-8") as f:
+    content = f.read()
+
+# Убрать часы из budget для поля h
+h_val = re.sub(r"[^0-9\-]", "", budget) or "?"
+
+new_row = "| {} | {} | **{}** — [описание] | {} | pending | W{} | {} |\n".format(
+    flag, wp_num, title, h_val,
+    re.search(r"W(\d+)", weekplan_path).group(1) if re.search(r"W(\d+)", weekplan_path) else "?",
+    gov_repo + "/inbox"
+)
+
+anchor = next((a for a in ["**Бюджет недели:**", "**Бюджет итого:**"] if a in content), None)
+if anchor:
+    content = content.replace(anchor, new_row + anchor)
+    with open(weekplan_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print("   ✅ WeekPlan: строка WP-{} добавлена".format(wp_num))
+else:
+    print("   ⚠️  WeekPlan: якорь 'Бюджет недели' / 'Бюджет итого' не найден — добавить вручную", file=sys.stderr)
+PYEOF
 else
   echo "   ⚠️  WeekPlan не найден в current/ — добавить вручную" >&2
 fi
 
-# --- Шаг 5: Linear ---
-echo "5/5 Linear: создать issue вручную или через MCP (create-wp.sh не имеет MCP доступа)"
-echo "   ℹ️  Запустить после скрипта: Linear MCP → create_issue title='WP-${WP_NUM} ${TITLE}' teamId=TSR"
+# --- Шаг 5: Strategy.md (только если --result задан и бюджет ≥3h) ---
+echo "5/6 Strategy.md..."
+
+BUDGET_H=$(echo "$BUDGET" | sed 's/[^0-9]//g')
+if [[ -n "$RESULT" && "${BUDGET_H:-0}" -ge 3 ]]; then
+  STRATEGY_FILE="$STRATEGY/docs/Strategy.md"
+  python3 - "$STRATEGY_FILE" "$WP_NUM" "$REPO" "$RESULT" <<'PYEOF'
+import sys, datetime
+
+strategy_path, wp_num, repo, result = sys.argv[1:5]
+
+RU_MONTHS = {
+    1: "январь", 2: "февраль", 3: "март", 4: "апрель",
+    5: "май", 6: "июнь", 7: "июль", 8: "август",
+    9: "сентябрь", 10: "октябрь", 11: "ноябрь", 12: "декабрь"
+}
+today = datetime.date.today()
+section_anchor = "### РП → Результаты ({} {})".format(RU_MONTHS[today.month], today.year)
+
+with open(strategy_path, "r", encoding="utf-8") as f:
+    content = f.read()
+
+if section_anchor not in content:
+    print("   ⚠️  Strategy.md: секция «{}» не найдена — добавить вручную".format(section_anchor))
+    sys.exit(0)
+
+section_start = content.index(section_anchor)
+table_sep = content.find("|---|", section_start)
+if table_sep == -1:
+    print("   ⚠️  Strategy.md: разделитель таблицы не найден в секции — добавить вручную")
+    sys.exit(0)
+
+insert_at = content.index("\n", table_sep) + 1
+repo_cell = repo if repo else "—"
+new_row = "| WP-{} | {} | {} | pending |\n".format(wp_num, repo_cell, result)
+content = content[:insert_at] + new_row + content[insert_at:]
+
+with open(strategy_path, "w", encoding="utf-8") as f:
+    f.write(content)
+print("   ✅ Strategy.md: WP-{} → {} добавлен".format(wp_num, result))
+PYEOF
+elif [[ "${BUDGET_H:-0}" -ge 3 ]]; then
+  echo "   ℹ️  РП ≥3h, но --result не задан — добавить маппинг в Strategy.md вручную"
+else
+  echo "   ℹ️  РП <3h — маппинг в Strategy.md не требуется"
+fi
+
+# --- Шаг 6: active-wp.md ---
+echo "6/6 active-wp.md..."
+
+if [[ -f "$STRATEGY/scripts/build-active-wp.py" ]]; then
+  python3 "$STRATEGY/scripts/build-active-wp.py" \
+    && echo "   ✅ active-wp.md пересобран" \
+    || echo "   ⚠️  build-active-wp.py завершился с ошибкой — пересобрать вручную" >&2
+else
+  echo "   ⚠️  scripts/build-active-wp.py не найден — пересобрать вручную" >&2
+fi
+
+# --- Linear (ручной шаг) ---
+echo ""
+echo "ℹ️  Linear: создать issue вручную или через MCP"
+echo "   Linear MCP → create_issue title='WP-${WP_NUM} ${TITLE}' teamId=TSR"
 
 # --- Удалить consent file ---
 if [[ "$SKIP_CONSENT" -eq 0 && -f "$CONSENT_FILE" ]]; then
@@ -263,5 +356,6 @@ fi
 echo ""
 echo "✅ WP-${WP_NUM} создан: $TITLE"
 echo "   context: inbox/WP-${WP_NUM}-${SLUG}.md"
+echo "   archive: archive/wp-contexts/WP-${WP_NUM}-${SLUG}.md"
 echo "   Следующий шаг: заполнить «Проблема», «Артефакт», «Фазы» в context file"
-echo "   Не забыть: Linear issue + (если ≥3h) Strategy.md маппинг"
+echo "   Не забыть: Linear issue"
