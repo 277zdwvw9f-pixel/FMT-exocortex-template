@@ -116,10 +116,14 @@ print(result)
 " 2>/dev/null || echo "wp-$(echo "$TITLE" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-' | cut -c1-30)")
 fi
 
-WP_FILE="$INBOX/WP-${WP_NUM}-${SLUG}.md"
+# Inbox convention (WP-434): every WP is a folder inbox/WP-N/ with main file WP-N.md.
+# Slug is dropped from the filename (lives in title: frontmatter); archive stub keeps it.
+WP_DIR="$INBOX/WP-${WP_NUM}"
+WP_FILE="$WP_DIR/WP-${WP_NUM}.md"
+mkdir -p "$WP_DIR"
 
 echo "🚀 Создаю WP-${WP_NUM}: $TITLE"
-echo "   Файл: inbox/WP-${WP_NUM}-${SLUG}.md"
+echo "   Папка: inbox/WP-${WP_NUM}/WP-${WP_NUM}.md"
 echo "   Бюджет: $BUDGET | Приоритет: $PRIORITY"
 
 # --- Сформировать строки таблицы связок ---
@@ -151,6 +155,7 @@ budget: ${BUDGET}
 created: ${TODAY}
 last_session: ${TODAY}
 related: []
+activation: on-demand
 ---
 
 # WP-${WP_NUM}: ${TITLE}
@@ -214,7 +219,7 @@ echo "   ✅ $ARCHIVE_STUB"
 # --- Шаг 3: WP-REGISTRY.md ---
 echo "3/6 WP-REGISTRY.md..."
 
-python3 - "$REGISTRY" "$WP_NUM" "$PRIORITY" "$TITLE" "$REPO" "$BUDGET" "$GOV_REPO" <<'PYEOF'
+if ! python3 - "$REGISTRY" "$WP_NUM" "$PRIORITY" "$TITLE" "$REPO" "$BUDGET" "$GOV_REPO" <<'PYEOF'
 import sys
 registry_path, wp_num, priority, title, repo, budget, gov_repo = sys.argv[1:8]
 
@@ -223,16 +228,49 @@ with open(registry_path, "r", encoding="utf-8") as f:
 
 # Найти строку-разделитель после заголовка таблицы (|---|---|...)
 insert_at = None
+header_line = None
 for i, line in enumerate(lines):
     if line.strip().startswith("|---") and i > 0 and lines[i-1].strip().startswith("| #"):
         insert_at = i + 1
+        header_line = lines[i-1]
         break
 
 if insert_at is None:
     print("❌ Не найден заголовок таблицы REGISTRY", file=sys.stderr)
     sys.exit(1)
 
-repo_cell = repo if repo else "{}/inbox/WP-{}-*.md".format(gov_repo, wp_num)
+# Схема-гард (issue #263): create-wp.sh пишет 6-колоночную строку
+# (# | P | Название | Ст | Репо | Бюджет). Если заголовок REGISTRY этой репо
+# ещё не приведён к актуальной схеме (например, старый формат
+# | # | Название | Статус | Активация |) — молча вставленная 6-колоночная
+# строка ломает таблицу. Лучше остановиться с понятной подсказкой, чем
+# незаметно испортить реестр.
+EXPECTED_COLS = 6
+header_cols = [c.strip() for c in header_line.strip().strip("|").split("|")]
+if len(header_cols) != EXPECTED_COLS:
+    print(
+        "❌ WP-REGISTRY.md использует нестандартную схему таблицы: {} колонок вместо {}.".format(
+            len(header_cols), EXPECTED_COLS
+        ),
+        file=sys.stderr,
+    )
+    print("   Заголовок: {}".format(header_line.strip()), file=sys.stderr)
+    print(
+        "   create-wp.sh пишет строки формата | # | P | Название | Ст | Репо | Бюджет | —",
+        file=sys.stderr,
+    )
+    print(
+        "   вставка в таблицу другой формы испортит её вместо добавления строки.",
+        file=sys.stderr,
+    )
+    print(
+        "   Приведите заголовок и существующие строки REGISTRY к актуальной 6-колоночной",
+        file=sys.stderr,
+    )
+    print("   схеме вручную, затем повторите создание РП.", file=sys.stderr)
+    sys.exit(1)
+
+repo_cell = repo if repo else "{}/inbox/WP-{}/".format(gov_repo, wp_num)
 new_row = "| {} | {} | **{}** | ⏳ | {} | {} |\n".format(
     wp_num, priority, title, repo_cell, budget
 )
@@ -243,6 +281,19 @@ with open(registry_path, "w", encoding="utf-8") as f:
 
 print("   ✅ REGISTRY: строка {} добавлена".format(wp_num))
 PYEOF
+then
+  exit 1
+fi
+
+# Post-write verification (issue #256): create-wp.sh once reported success here
+# without the row actually landing in REGISTRY — the writer above has no retry/lock,
+# so confirm the row is really there before moving on.
+# issue #263: некоторые репо исторически пишут номер РП с префиксом (| WP-N |),
+# не голым числом (| N |) — grep должен принимать оба формата.
+if ! grep -qE "\| \*?\*?(WP-)?${WP_NUM}\*?\*? \|" "$REGISTRY"; then
+  echo "❌ REGISTRY write verification FAILED: строка WP-${WP_NUM} не найдена после записи" >&2
+  exit 1
+fi
 
 # --- Шаг 3: WeekPlan ---
 echo "4/6 WeekPlan..."
@@ -272,7 +323,7 @@ new_row = "| {} | {} | **{}** — [описание] | {} | pending | W{} | {} |
 
 anchor = next((a for a in ["**Бюджет недели:**", "**Бюджет итого:**"] if a in content), None)
 if anchor:
-    content = content.replace(anchor, new_row + anchor)
+    content = content.replace(anchor, new_row + anchor, 1)
     with open(weekplan_path, "w", encoding="utf-8") as f:
         f.write(content)
     print("   ✅ WeekPlan: строка WP-{} добавлена".format(wp_num))
@@ -346,16 +397,17 @@ echo ""
 echo "ℹ️  Linear: создать issue вручную или через MCP"
 echo "   Linear MCP → create_issue title='WP-${WP_NUM} ${TITLE}' teamId=TSR"
 
-# --- Удалить consent file ---
+# --- Consent file остаётся в папке WP для аудит-следа ---
+# Ранее consent file удалялся здесь; это ломало последующие wp-gate-check
+# редактирования в той же сессии. Файл сохраняется; уборка по усмотрению пилота.
 if [[ "$SKIP_CONSENT" -eq 0 && -f "$CONSENT_FILE" ]]; then
-  rm -f "$CONSENT_FILE"
   echo ""
-  echo "🗑  Consent file удалён: $CONSENT_FILE"
+  echo "ℹ️  Consent file сохранён: $CONSENT_FILE"
 fi
 
 echo ""
 echo "✅ WP-${WP_NUM} создан: $TITLE"
-echo "   context: inbox/WP-${WP_NUM}-${SLUG}.md"
+echo "   context: inbox/WP-${WP_NUM}/WP-${WP_NUM}.md"
 echo "   archive: archive/wp-contexts/WP-${WP_NUM}-${SLUG}.md"
 echo "   Следующий шаг: заполнить «Проблема», «Артефакт», «Фазы» в context file"
 echo "   Не забыть: Linear issue"
