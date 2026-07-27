@@ -1,5 +1,5 @@
 {
-  "version": "0.36.1",
+  "version": "0.36.2",
   "description": "Манифест платформенных файлов FMT-exocortex-template. Используется update.sh для доставки обновлений.",
   "files": [
     {
@@ -1021,6 +1021,9 @@
     },
     {
       "path": "roles/extractor/scripts/systemd/iwe-extractor-inbox-check.timer"
+    },
+    {
+      "path": "roles/extractor/scripts/wp429-extractor-prefilters.py"
     },
     {
       "path": "roles/role-boundaries.md"
