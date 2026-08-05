@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Regression test for bug #338: create-wp.sh должен записать РП в ВСЕ 5 мест.
-# Проверка: inbox, WeekPlan, Strategy.md, WP-REGISTRY, build-active-wp.py
+# Regression test for bug #338: create-wp.sh должен записать РП во ВСЕ локальные места.
+# Проверка (5 пунктов): inbox, WeekPlan, Strategy.md, WP-REGISTRY, build-active-wp.py.
+# Внешний трекер сюда не входит — он условный пост-шаг (issue #321), не локальная запись.
 
 set -euo pipefail
 
@@ -10,6 +11,15 @@ trap 'rm -rf "$TMPDIR"' EXIT
 
 TEMPLATE_ROOT="${IWE_TEMPLATE:-$HOME/IWE/FMT-exocortex-template}"
 cp -R "$TEMPLATE_ROOT/seed/strategy" "$TMPDIR/strategy"
+
+# seed/ is a one-time bootstrap template, correctly excluded from update.sh's
+# ongoing-sync manifest — a copy of this repo obtained any way other than a
+# fresh git clone of the exact commit that added current/WeekPlan*.md won't
+# have it (found by cold review 03.08). ensure_weekplan_fixture is a no-op
+# when the real seed one is already present.
+# shellcheck source=lib/seed_strategy_fixture.sh
+source "$TEMPLATE_ROOT/scripts/tests/lib/seed_strategy_fixture.sh"
+ensure_weekplan_fixture "$TMPDIR/strategy"
 
 # IWE_GOVERNANCE_REPO — имя подпапки ПОД IWE_ROOT (create-wp.sh:26-30), а не
 # произвольный относительный путь. "." без выставленного IWE_ROOT резолвился
