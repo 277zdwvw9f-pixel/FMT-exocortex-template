@@ -23,6 +23,7 @@ git -C "$SCRIPT_DIR" config user.name 'Install path guard test'
 cat >"$WORKSPACE_DIR/.exocortex.env" <<EOF
 WORKSPACE_DIR=$WORKSPACE_DIR
 HOME_DIR=/root
+USER_NAME=root
 CLAUDE_PATH=/root/.claude
 IWE_TEMPLATE=$SCRIPT_DIR
 IWE_RUNTIME=$WORKSPACE_DIR/.iwe-runtime
@@ -91,6 +92,24 @@ validate_no_install_values_in_applied_additions
 printf 'ignored.md\n' >"$SCRIPT_DIR/.gitignore"
 printf 'Leaked workspace: %s\n' "$WORKSPACE_DIR" >"$SCRIPT_DIR/ignored.md"
 APPLIED_PATHS=(update-manifest.json)
+validate_no_install_values_in_applied_additions
+
+# issue #397: CLAUDE_PATH defaults to a bare command name ("claude"), not a path.
+# The word "claude" legitimately appears in unrelated delivered content (comments,
+# claude-peer-adapter.sh mentions, etc.) — the guard must not treat a bare command
+# name as a leaked install value, only genuine paths (containing "/").
+git -C "$SCRIPT_DIR" checkout -q -- . 2>/dev/null || true
+git -C "$SCRIPT_DIR" clean -qfd 2>/dev/null || true
+cat >"$WORKSPACE_DIR/.exocortex.env" <<EOF
+WORKSPACE_DIR=$WORKSPACE_DIR
+HOME_DIR=/root
+USER_NAME=root
+CLAUDE_PATH=claude
+IWE_TEMPLATE=$SCRIPT_DIR
+IWE_RUNTIME=$WORKSPACE_DIR/.iwe-runtime
+EOF
+printf 'See scripts/claude-peer-adapter.sh for the Claude peer contract.\n' >"$SCRIPT_DIR/bare-claude.md"
+APPLIED_PATHS=(bare-claude.md)
 validate_no_install_values_in_applied_additions
 
 echo 'PASS: install-path guard checks only updater-applied working-tree additions'
