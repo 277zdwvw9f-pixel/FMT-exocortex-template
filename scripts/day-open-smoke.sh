@@ -64,21 +64,36 @@ scheduler_pulse() {
 }
 
 # === 2. KE-очередь (count + oldest) ===
+# Counts only reports still awaiting review. Counting every *.md made an empty
+# queue read as 10 reports / 42 days overdue on 2026-08-26, because applied
+# reports stay in the directory and the "oldest" age tracked the oldest file ever
+# written. Frontmatter is parsed exactly as in ke-queue-stats.sh (first block
+# only, both 'pending' and legacy 'pending-review') so the two counters that feed
+# the same dashboard cannot disagree again.
 ke_stats() {
   local ke_dir="$DS_STRATEGY/inbox/extraction-reports"
   if [ ! -d "$ke_dir" ]; then
     echo "0 -1"
     return
   fi
-  local count
-  count=$(find "$ke_dir" -maxdepth 1 -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
-  if [ "$count" -eq 0 ]; then
+  local pending_files count
+  pending_files=$(
+    for f in "$ke_dir"/*.md; do
+      [ -f "$f" ] || continue
+      awk '/^---/{if(seen){exit} seen=1; next} seen && /^status:[[:space:]]*pending(-review)?$/{print FILENAME; exit}' "$f"
+    done
+  )
+  if [ -z "$pending_files" ]; then
     echo "0 0"
     return
   fi
-  # oldest age в днях через stat
+  count=$(echo "$pending_files" | grep -c .)
   local oldest_ts now_ts age_days
-  oldest_ts=$(find "$ke_dir" -maxdepth 1 -type f -name "*.md" -exec stat -f "%m" {} \; 2>/dev/null | sort -n | head -1)
+  if [ "$(uname -s)" = "Darwin" ]; then
+    oldest_ts=$(echo "$pending_files" | tr '\n' '\0' | xargs -0 stat -f "%m" 2>/dev/null | sort -n | head -1)
+  else
+    oldest_ts=$(echo "$pending_files" | tr '\n' '\0' | xargs -0 stat -c "%Y" 2>/dev/null | sort -n | head -1)
+  fi
   if [ -z "$oldest_ts" ]; then
     echo "$count -1"
     return
