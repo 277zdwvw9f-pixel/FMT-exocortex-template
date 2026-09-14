@@ -5,6 +5,7 @@ argument-hint: ""
 version: 1.0.0
 layer: L1
 status: active
+browser_safe: false
 triggers:
   slash: [/month-close]
   phrases: []
@@ -55,9 +56,9 @@ Month Close = протокол. Исполнять ТОЛЬКО пошагово
 **1b. Коммиты за месяц.**
 
 ```bash
-for repo in $(ls {{HOME_DIR}}/IWE/); do
-  if [ -d {{HOME_DIR}}/IWE/$repo/.git ]; then
-    count=$(git -C {{HOME_DIR}}/IWE/$repo log --since="$MONTH_START" --until="$MONTH_END" --oneline --no-merges 2>/dev/null | wc -l)
+for repo in $(ls $HOME/IWE/); do
+  if [ -d $HOME/IWE/$repo/.git ]; then
+    count=$(git -C $HOME/IWE/$repo log --since="$MONTH_START" --until="$MONTH_END" --oneline --no-merges 2>/dev/null | wc -l)
     [ "$count" -gt 0 ] && echo "$repo: $count"
   fi
 done

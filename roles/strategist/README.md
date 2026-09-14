@@ -13,7 +13,7 @@
 FMT-exocortex-template/              DS-strategy/ (отдельный репо)
   roles/strategist/                     current/
     prompts/                              WeekPlan W{N}.md
-      add-wp.md                           ~~WeekReport W{N}.md~~ (deprecated → секция «Итоги W{N}» в WeekPlan)
+      add-wp.md                           WeekReport W{N} YYYY-MM-DD.md (факты недели, WP-297)
       check-plan.md                       DayPlan YYYY-MM-DD.md
       evening.md                        docs/
     scripts/                              Strategy.md
@@ -60,7 +60,7 @@ FMT-exocortex-template/              DS-strategy/ (отдельный репо)
 
 ## Расписание (launchd, macOS)
 
-| Время (UTC) | День | Сценарий | Plist |
+| Время (местное время машины) | День | Сценарий | Plist |
 |-------------|------|----------|-------|
 | {{TIMEZONE_HOUR}}:00 | Понедельник | `session-prep` (headless) | `com.strategist.morning` |
 | {{TIMEZONE_HOUR}}:00 | Вт-Вс | `day-plan` | `com.strategist.morning` |

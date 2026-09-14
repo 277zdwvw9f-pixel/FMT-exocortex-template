@@ -185,7 +185,14 @@ fi
 # --- Deterministic context extractors (WP-7 DAP: strategy + day-close) ---
 extract_day_close_carry_over() {
   local yday="$1"
-  local sessions_dir="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/sessions"
+  # issue #545: корень журналов — тем же контрактом, что писатель
+  # (session-guard.sh): MC-sessions после миграции, legacy иначе. Явный
+  # IWE_SESSIONS_ROOT, если сломан, — видимый WARN, не молчаливый промах.
+  local sessions_dir
+  if ! sessions_dir=$(iwe_sessions_dir); then
+    echo "WARN: IWE_SESSIONS_ROOT=${IWE_SESSIONS_ROOT:-} недоступен — читаю legacy-путь $(iwe_resolve_governance_repo "${GOVERNANCE_REPO:-}")/sessions" >&2
+    sessions_dir="$IWE/$(iwe_resolve_governance_repo "${GOVERNANCE_REPO:-}")/sessions"
+  fi
   local month="${yday:0:7}"
   local carry_over=""
 
@@ -194,6 +201,11 @@ extract_day_close_carry_over() {
   dc_report=$(find "$sessions_dir/$month" -maxdepth 2 -type f -name "report.md" 2>/dev/null | grep -F "${yday}-" | grep -F "day-close" | head -1)
   if [ -z "$dc_report" ]; then
     dc_report=$(find "$sessions_dir/$month" -maxdepth 1 -type f -name "${yday}-day-close.md" 2>/dev/null | head -1)
+  fi
+  if [ -z "$dc_report" ]; then
+    # Плоская раскладка (журналы прямо в корне, без подпапки по месяцу) —
+    # запасной путь для установок, где писатель ещё писал плоско (issue #545).
+    dc_report=$(find "$sessions_dir" -maxdepth 1 -type f -name "${yday}*day-close*" 2>/dev/null | head -1)
   fi
   if [ -n "$dc_report" ] && [ -f "$dc_report" ]; then
     carry_over=$(awk '
@@ -228,7 +240,14 @@ extract_day_close_carry_over() {
 
 extract_strategy_context() {
   local week_num="$1"
-  local sessions_dir="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/sessions"
+  # issue #545: корень журналов — тем же контрактом, что писатель
+  # (session-guard.sh): MC-sessions после миграции, legacy иначе. Явный
+  # IWE_SESSIONS_ROOT, если сломан, — видимый WARN, не молчаливый промах.
+  local sessions_dir
+  if ! sessions_dir=$(iwe_sessions_dir); then
+    echo "WARN: IWE_SESSIONS_ROOT=${IWE_SESSIONS_ROOT:-} недоступен — читаю legacy-путь $(iwe_resolve_governance_repo "${GOVERNANCE_REPO:-}")/sessions" >&2
+    sessions_dir="$IWE/$(iwe_resolve_governance_repo "${GOVERNANCE_REPO:-}")/sessions"
+  fi
   local strategy_file=""
 
   # 1. Strategy session markdown. Search current AND previous month: the session for a
@@ -357,8 +376,13 @@ read_morning_priorities() {
 # Если сегодня strategy_day → не генерировать DayPlan (SKILL.md шаг 4).
 # Возвращает exit 2; extension обрабатывает этот код и выводит сообщение Claude.
 # DAY_OPEN_FORCE_STRATEGY_DAY=1 bypasses the guard without changing default behavior —
-# needed by week-open-day-section-patch.sh (WP-484 Ф3), which reuses this same
-# scaffold to build the "Открытие дня" section inside WeekPlan on strategy_day.
+# an extension point for a caller that wants this scaffold's output on a
+# strategy_day too (e.g. to build an "Открытие дня" section inside WeekPlan).
+# issue #595: an earlier version of this comment named a specific caller
+# script (week-open-day-section-patch.sh, WP-484 Ф3) that depends on
+# author-only infrastructure (a shared-checkout publish gateway, a private
+# LLM proxy) not delivered by this template — the caller itself is out of
+# scope here, this flag is the generic, delivered part of the extension point.
 STRATEGY_DAY_NAME=$(read_yaml "day_open.strategy_day" || true)
 case "${STRATEGY_DAY_NAME:-monday}" in
   monday)    STRATEGY_DOW=1 ;;
@@ -1133,7 +1157,14 @@ render_yesterday() {
     grep "^| " "$day_report_file" | grep -v "^| РП\|^| Время\|^|---" | sed 's/^/- /'
   else
     # Fallback: сканировать sessions напрямую за вчера если DayReport отсутствует
-    local sessions_dir="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/sessions"
+    # issue #545: см. extract_day_close_carry_over — корень журналов по
+    # контракту писателя (MC-sessions / legacy), сломанный явный
+    # IWE_SESSIONS_ROOT — видимый WARN.
+    local sessions_dir
+    if ! sessions_dir=$(iwe_sessions_dir); then
+      echo "WARN: IWE_SESSIONS_ROOT=${IWE_SESSIONS_ROOT:-} недоступен — читаю legacy-путь $(iwe_resolve_governance_repo "${GOVERNANCE_REPO:-}")/sessions" >&2
+      sessions_dir="$IWE/$(iwe_resolve_governance_repo "${GOVERNANCE_REPO:-}")/sessions"
+    fi
     local found=0
     # WP-529 (continuation, 19.08): resolved once here, not inside the loop —
     # this whole branch only runs when DayReport is missing (rare fallback), and
@@ -1228,10 +1259,16 @@ render_compact_dashboard() {
 # The template's full collection has a status column but does not define an "черновик"
 # value, while the priority table is the explicit current-work list. "Где остановился"
 # is the pilot's own progress — we never fabricate it (see feedback_no_invented_personal_history).
+# Sets globals SELF_DEV_BLOCK (details-section body) and SELF_DEV_TABLE_THEME
+# (short table-row cell, issue #636) from the same source in one pass. A plain
+# `echo`-per-line function called via `SELF_DEV_BLOCK=$(render_self_dev)` would
+# run in a subshell, discarding any other global it tries to set — so this
+# builds SELF_DEV_BLOCK as a string instead of relying on captured stdout.
 render_self_dev() {
   local draft_list="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/drafts/draft-list.md"
   if [ ! -f "$draft_list" ]; then
-    echo "**Активный черновик:** нет данных (drafts/draft-list.md не найден)"
+    SELF_DEV_TABLE_THEME="тема не задана — обсудить с пилотом (drafts/draft-list.md не найден)"
+    SELF_DEV_BLOCK="**Активный черновик:** нет данных (drafts/draft-list.md не найден)"
     return
   fi
   # Take the first data row from the template-defined "Приоритетные" table.
@@ -1250,21 +1287,33 @@ render_self_dev() {
       exit
     }' "$draft_list")
   if [ -z "$row" ]; then
-    echo "**Активный черновик:** нет активных черновиков (приоритетные пусты или все завершены)"
+    SELF_DEV_TABLE_THEME="тема не задана — обсудить с пилотом (нет активных черновиков)"
+    SELF_DEV_BLOCK="**Активный черновик:** нет активных черновиков (приоритетные пусты или все завершены)"
     return
   fi
   local dnum path
   dnum=$(echo "$row" | grep -oE 'D-[0-9]+' | head -1)
   path=$(echo "$row" | grep -oE '\([^)]*D-[0-9][^)]*\.md\)' | head -1 | tr -d '()' | sed 's#^\./#drafts/#')
+  SELF_DEV_TABLE_THEME="$dnum"
+  local draft_line
   if [ -n "$path" ]; then
-    echo "**Активный черновик:** [$dnum]($path)"
+    draft_line="**Активный черновик:** [$dnum]($path)"
   else
-    echo "**Активный черновик:** $dnum (ссылка не распознана в draft-list.md)"
+    draft_line="**Активный черновик:** $dnum (ссылка не распознана в draft-list.md)"
   fi
-  echo "**Где остановился:** открой файл черновика — прогресс ведёт пилот."
-  echo "**Сегодня:** 60-90 мин на редактирование / структурирование."
+  SELF_DEV_BLOCK="$draft_line
+**Где остановился:** открой файл черновика — прогресс ведёт пилот.
+**Сегодня:** 60-90 мин на редактирование / структурирование."
 }
-SELF_DEV_BLOCK=$(render_self_dev)
+# issue #636: table-row theme (SELF_DEV_TABLE_THEME) is deterministic, same
+# source as the details block — a scaffold with no real draft used to leave a
+# bare [тема] placeholder that the LLM filled in on its own, and the invented
+# topic then carried over via Day Close carry-over for weeks
+# (feedback_no_invented_personal_history). Called directly, not via `$(...)`,
+# so both globals land in this shell rather than a discarded subshell.
+SELF_DEV_TABLE_THEME=""
+SELF_DEV_BLOCK=""
+render_self_dev
 
 # --- Pre-compute sweep list (single call, reused below) ---
 # SWEEP_WP_FULL: raw active-wp-sweep.sh output, kept only as input to SWEEP_WP_LIST below.
@@ -1313,7 +1362,7 @@ generated_by: day-open-scaffold.sh (WP-264 Ф2)
 <details>
 <summary><b>Саморазвитие</b></summary>
 
-- **Изучи персональное руководство:** личное руководство (репозиторий \`personal-guide\` на твоём GitHub — см. \`/connect-guide\`)
+- **Изучи персональное руководство:** личное руководство (репозиторий \`DS-personal-guide\`, либо \`personal-guide\` у ранних немигрированных пользователей — см. \`/connect-guide\`)
 
 $SELF_DEV_BLOCK
 
@@ -1347,7 +1396,7 @@ ${MANDATORY_DAILY_WPS:-  (не задано — day-rhythm-config.yaml не со
 
 | 🚦 | ТВС | # | РП | h | Статус |
 |----|-----|---|-----|---|--------|
-| ⚫ | В | N | **Саморазвитие** — [тема] | 1-2 | pending |
+| ⚫ | В | N | **Саморазвитие** — $SELF_DEV_TABLE_THEME | 1-2 | pending |
 | 🔴 | С | NNN | **<!-- PENDING -->** | X | pending |
 
 > ТВС: **В** = Важное (развитие / критичное для R1-R6) · **Т** = Текущее (плановая работа) · **С** = Срочное (угроза конвейеру, дублируется в шапке 🚨)
@@ -1375,11 +1424,13 @@ $(render_fleeting_notes)
 <details>
 <summary><b>Календарь ($DAY_NUM $MONTH_RU)</b></summary>
 
-<!-- PENDING: calendar — сначала вызвать mcp__ext-google-calendar__list-calendars,
-  чтобы получить собственные calendar_ids пилота (свои календари + подключённые
-  общие), затем mcp__ext-google-calendar__list-events для каждого найденного ID
-  с timeMin=$DATE 00:00 МСК, timeMax=$DATE 23:59 МСК.
+<!-- PENDING: calendar — единый источник: календарный коннектор (MCP-инструменты
+  календаря; имена зависят от установки, имя содержит «calendar» без учёта регистра, напр. mcp__claude_ai_Google_Calendar__* — фактические имена
+  взять из списка инструментов текущей сессии). Получить список календарей пилота
+  (свои + подключённые общие), затем события каждого за $DATE (00:00–23:59 МСК).
   Показать ВСЕ события дня по всем найденным календарям.
+  Если коннектора нет — фоллбэк: bash \$IWE_SCRIPTS/server-calendar.sh $DATE
+  (его «credentials не настроены» — факт о скрипте, не о календаре; issue #581).
   Формат: таблица + строка свободных блоков ≥1h. -->
 
 | Время (МСК) | Событие | Длит. | Связь с РП |

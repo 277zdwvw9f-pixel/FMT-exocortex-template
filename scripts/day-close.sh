@@ -22,6 +22,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/../.claude/lib/iwe-env-bootstrap.sh" || exit 1
+# issue #545: iwe_sessions_dir (резолвер корня журналов по контракту писателя)
+source "$SCRIPT_DIR/lib/common.sh" || {
+  echo "FATAL: lib/common.sh not found next to $0 — промотированная копия устарела, обновите её вместе с шаблоном" >&2
+  exit 1
+}
 GOVERNANCE_REPO="${GOVERNANCE_REPO:-${IWE_GOVERNANCE_REPO:-DS-strategy}}"
 DS_STRATEGY="$WORKSPACE_DIR/$GOVERNANCE_REPO"
 # Slug derived from WORKSPACE_DIR (not $HOME) so it matches Claude's project key
@@ -1392,13 +1397,53 @@ PYEOF
   atomic_copy_file "$rhythm_src" "$rhythm_dst" "day-rhythm-config.yaml"
 }
 
+# resolve_memory_src_fallback — issue #637: WORKSPACE_SLUG matches Claude's
+# project key only when the CLI was launched from WORKSPACE_DIR itself; launched
+# from a parent (e.g. workspace at ~/projects/IWE, CLI started in ~/projects)
+# the key slugs the launch cwd instead and the primary guess misses by one
+# level. Tries, in order: (1) the exact WORKSPACE_SLUG match already computed
+# into MEMORY_SRC, (2) the sole memory/ dir among ~/.claude/projects/*/ if
+# there is exactly one (ambiguous with 2+, so skipped rather than guessed),
+# (3) $GOVERNANCE_REPO/memory (the memory/ symlink CLAUDE.md §4 documents).
+# Prints which tier matched to stderr so a chosen fallback is never silent.
+resolve_memory_src_fallback() {
+  local d candidates=()
+  for d in "$HOME"/.claude/projects/*/memory; do
+    [ -d "$d" ] && candidates+=("$d")
+  done
+  if [ "${#candidates[@]}" -eq 1 ]; then
+    warn "  memory source: WORKSPACE_SLUG guess missed, using sole match ${candidates[0]}"
+    printf '%s\n' "${candidates[0]}"
+    return 0
+  fi
+  if [ -d "$DS_STRATEGY/memory" ]; then
+    warn "  memory source: WORKSPACE_SLUG guess missed, using $DS_STRATEGY/memory"
+    printf '%s\n' "$DS_STRATEGY/memory"
+    return 0
+  fi
+  return 1
+}
+
 # --- Шаг 1: Backup memory/ + CLAUDE.md → exocortex/ ---
 do_backup() {
   log "Шаг 1/3: Backup memory/ → exocortex/"
 
   if [ ! -d "$MEMORY_SRC" ]; then
-    err "Memory source not found: $MEMORY_SRC"
-    return 1
+    # issue #536 regression test asserts an explicit IWE_MEMORY_SRC override
+    # that doesn't exist is a real misconfiguration (hard fail, not silent
+    # skip) — the fallback chain below is only for the auto-guessed default
+    # missing its target, not for a caller who named a specific path.
+    if [ -n "${IWE_MEMORY_SRC:-}" ]; then
+      err "Memory source not found: $MEMORY_SRC"
+      return 1
+    fi
+    local fallback
+    if fallback="$(resolve_memory_src_fallback)"; then
+      MEMORY_SRC="$fallback"
+    else
+      warn "Memory source not found: $MEMORY_SRC (no unambiguous fallback either) — backup skipped"
+      return "$RC_STEP_SKIPPED"
+    fi
   fi
 
   mkdir -p "$EXOCORTEX_DST"
@@ -1600,11 +1645,18 @@ do_session_consolidation() {
   today=$(date +%Y-%m-%d)
   local month_dir
   month_dir=$(date +%Y-%m)
-  local sessions_root="$DS_STRATEGY/sessions/$month_dir"
+  # issue #545: корень журналов — тем же контрактом, что писатель
+  # (session-guard.sh): MC-sessions после миграции, legacy иначе.
+  local sessions_base
+  if ! sessions_base=$(iwe_sessions_dir); then
+    warn "  IWE_SESSIONS_ROOT=${IWE_SESSIONS_ROOT:-} недоступен — консолидация читает legacy-путь"
+    sessions_base="$DS_STRATEGY/sessions"
+  fi
+  local sessions_root="$sessions_base/$month_dir"
   local output_file="$DS_STRATEGY/current/sessions-today.md"
 
   if [ ! -d "$sessions_root" ]; then
-    warn "  Папка sessions/$month_dir не найдена — пропуск"
+    warn "  Папка $sessions_root не найдена — пропуск"
     return "$RC_STEP_SKIPPED"
   fi
 
@@ -1730,6 +1782,7 @@ main() {
     case "$backup_rc" in
       0)                     backup_status="ok" ;;
       "$RC_BACKUP_WARNING") backup_status="warn" ;;
+      "$RC_STEP_SKIPPED")    backup_status="skip" ;;
       *)                     backup_status="fail" ;;
     esac
   fi

@@ -25,6 +25,17 @@ FLEETING="$HOME/IWE/$GOVERNANCE_REPO/inbox/fleeting-notes.md"
 
 MODE="${1:-install}"
 
+# --schedule-only (WP-5 F55): install just the periodic job. update.sh runs this
+# script on EVERY update now, and the two steps below it -- taking over
+# ~/.git-templates/hooks/post-commit and the global init.templateDir -- are
+# install-time decisions, not something an update may redo behind the user's
+# back on a machine where either already points somewhere of their own.
+SCHEDULE_ONLY=false
+if [ "$MODE" = "--schedule-only" ]; then
+    SCHEDULE_ONLY=true
+    MODE="install"
+fi
+
 log() { echo "[setup-extractor] $*"; }
 ok() { echo "  ✅ $*"; }
 warn() { echo "  ⚠️  $*"; }
@@ -55,6 +66,12 @@ esac
 
 # === 2. Git-templates (post-commit hook) ===
 
+if $SCHEDULE_ONLY; then
+    log "2/4 Git-templates — пропущено (режим только расписания)"
+else
+# Body deliberately left at its original indentation: it contains a quoted
+# heredoc (HOOK) whose leading whitespace would end up inside the generated
+# git hook. The block ends at `fi  # SCHEDULE_ONLY` below.
 log "2/4 Git-templates для post-commit hook"
 
 GIT_TEMPLATES="$HOME/.git-templates"
@@ -106,6 +123,7 @@ HOOK
     fi
     git config --global init.templateDir "$GIT_TEMPLATES" || warn "не смог установить init.templateDir"
 fi
+fi  # SCHEDULE_ONLY
 
 # === 3. Cron для git-diff-feed (06:00 / 21:00) ===
 
@@ -118,7 +136,18 @@ if [ "$PLATFORM" = "Darwin" ]; then
     elif [ "$MODE" = "--uninstall" ]; then
         if [ -f "$PLIST" ]; then launchctl unload "$PLIST" 2>/dev/null || true; rm "$PLIST"; ok "launchd plist удалён"; fi
     else
-        cat > "$PLIST" <<PLIST
+        # launchd не создаёт каталог для StandardOutPath сам и без него не
+        # стартует. Раньше каталог появлялся только в Linux-ветке
+        # roles/extractor/install.sh, то есть на чистом Маке задача ставилась
+        # и молча не запускалась (WP-5 F55, находка холодного ревью).
+        mkdir -p "$HOME/logs/extractor"
+        # launchd не наследует login-shell PATH (WP-5, найдено 03.09 — job падал
+        # exit 127 "claude CLI не найден"), поэтому PATH нужно прописать явно, а
+        # не полагаться на окружение launchd по умолчанию (/usr/bin:/bin:/usr/sbin:/sbin).
+        CLAUDE_BIN_DIR="$(dirname "$(command -v claude)")"
+        PLIST_PATH="$CLAUDE_BIN_DIR:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+        IWE_TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+        NEW_PLIST_CONTENT=$(cat <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -136,10 +165,41 @@ if [ "$PLATFORM" = "Darwin" ]; then
     </array>
     <key>StandardOutPath</key><string>$HOME/logs/extractor/launchd-git-diff-feed.log</string>
     <key>StandardErrorPath</key><string>$HOME/logs/extractor/launchd-git-diff-feed-error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key><string>$PLIST_PATH</string>
+        <key>HOME</key><string>$HOME</string>
+        <key>USER</key><string>${USER:-$(whoami)}</string>
+        <key>LOGNAME</key><string>${USER:-$(whoami)}</string>
+        <key>IWE_TEMPLATE</key><string>$IWE_TEMPLATE_DIR</string>
+        <key>IWE_WORKSPACE</key><string>$HOME/IWE</string>
+        <key>IWE_GOVERNANCE_REPO</key><string>$GOVERNANCE_REPO</string>
+        <key>IWE_RUNTIME</key><string>$IWE_RUNTIME</string>
+    </dict>
 </dict></plist>
 PLIST
-        launchctl load "$PLIST" 2>/dev/null || warn "launchctl load failed (повторите вручную)"
-        ok "launchd plist установлен в $PLIST"
+)
+        # Idempotency (WP-5, found 03.09 — setup.sh now calls this on every
+        # run, not just a one-off manual invocation): re-installing an
+        # unchanged, already-loaded job would still unload/reload it, which
+        # could kill a run in flight at exactly 06:00/21:00. Skip only when
+        # content is unchanged AND the job is actually loaded -- content
+        # unchanged but not loaded (e.g. a prior `launchctl unload` left it
+        # stopped) must still fall through to `load`.
+        if [ -f "$PLIST" ] && [ "$(cat "$PLIST")" = "$NEW_PLIST_CONTENT" ] \
+            && launchctl list "com.extractor.git-diff-feed" >/dev/null 2>&1; then
+            ok "launchd plist уже установлен и активен, без изменений"
+        else
+            # Unload ДО перезаписи файла: unload читает Label из ТЕКУЩЕГО
+            # содержимого на диске. Если Label когда-нибудь изменится в
+            # heredoc выше, unload после перезаписи снял бы задачу по НОВОМУ
+            # Label (которого ещё нет в реестре launchd), и старая задача
+            # осталась бы висеть орфаном.
+            launchctl unload "$PLIST" 2>/dev/null || warn "launchctl unload: задача не была загружена (норма при первой установке)"
+            printf '%s\n' "$NEW_PLIST_CONTENT" > "$PLIST"
+            launchctl load "$PLIST" 2>/dev/null || warn "launchctl load failed (повторите вручную)"
+            ok "launchd plist установлен в $PLIST"
+        fi
     fi
 elif [ "$PLATFORM" = "Linux" ]; then
     UNIT_DIR="$HOME/.config/systemd/user"
@@ -176,7 +236,7 @@ fi
 
 log "4/4 Fleeting-notes inbox"
 
-if [ "$MODE" != "--check" ] && [ "$MODE" != "--uninstall" ]; then
+if [ "$MODE" != "--check" ] && [ "$MODE" != "--uninstall" ] && ! $SCHEDULE_ONLY; then
     if [ ! -f "$FLEETING" ]; then
         mkdir -p "$(dirname "$FLEETING")"
         cat > "$FLEETING" <<'FN'

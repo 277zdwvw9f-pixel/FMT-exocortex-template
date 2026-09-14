@@ -4,6 +4,7 @@ description: "Инструкции для автора шаблона IWE: stagi
 version: 1.0.0
 layer: L1
 status: active
+browser_safe: false
 triggers:
   slash: [/author-mode]
   phrases:
@@ -59,7 +60,7 @@ CLAUDE.md: `bash $IWE_SCRIPTS/template-sync.sh` (sync / `--dry-run` / `--check`)
 ### Именование (плейсхолдеры)
 
 - `{{GOVERNANCE_REPO}}` — личный governance-хаб
-- `{{HOME_DIR}}/IWE/` — рабочая директория
+- `$HOME/IWE/` — рабочая директория
 
 ### Блокирующие (авторские)
 

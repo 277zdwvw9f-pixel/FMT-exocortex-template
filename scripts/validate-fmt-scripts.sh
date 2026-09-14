@@ -98,10 +98,27 @@ if [[ "$MODE" != "settings-json" ]]; then
         # `cd ".../DS-strategy" || echo "DS-strategy"` (реальный хардкод в cd, замаскированный
         # безопасным fallback-хвостом) прошёл бы незамеченным, т.к. хвост строки матчит
         # safe-паттерн, даже когда начало строки содержит отдельный, опасный хардкод.
+        # issue #759: было `case ... *) <проверка> ;; esac` — три ветки-исключения
+        # no-op'или через `:`, дефолтная ветка несла всю проверку. Добавление
+        # четвёртой ветки вынесено в флаг, проверка осталась одна, ниже case.
+        #
+        # Guard по shebang/+x (обсуждался при закрытии issue) здесь не работает:
+        # файлы .claude/hooks/tests/*.sh — сами настоящие исполняемые тест-
+        # харнессы с shebang (запускаются напрямую), а не фикстуры-как-файл.
+        # Фикстура — это СТРОКОВЫЙ ЛИТЕРАЛ внутри `expect "..." pass '...'`
+        # (аргумент вызова), а не файл целиком; file-level guard не может
+        # отличить литерал от кода внутри одного реального исполняемого файла.
+        # Поэтому исключение здесь — то же безусловное path-based, что и
+        # scripts/tests/* (issues #446/#450): каталог целиком — тестовая
+        # обвязка по конвенции, её содержимое не сканируется.
+        skip_hardcode_check=0
         case "$f" in
-            scripts/tests/*|*/scripts/tests/*) : ;;  # issues #446/#450: фикстуры конвенции scripts/tests/ — не сканировать. Уже, чем */tests/* — другие tests/-каталоги репо (.claude/skills/*/tests/, guide-kit/tests/) продолжают проверяться как обычно.
-            setup/test-*|*/setup/test-*|setup/smoke-test-*|*/setup/smoke-test-*) : ;;  # issue #499: тест-обвязки setup/ по именной конвенции — их fail-сообщения и grep-паттерны СОДЕРЖАТ литерал как предмет собственной проверки; классовое путевое исключение (не эвристика по строке), остальной setup/ сканируется как прежде.
-            *)
+            scripts/tests/*|*/scripts/tests/*) skip_hardcode_check=1 ;;  # issues #446/#450: фикстуры конвенции scripts/tests/ — не сканировать. Уже, чем */tests/* — другие tests/-каталоги репо (.claude/skills/*/tests/, guide-kit/tests/) продолжают проверяться как обычно.
+            setup/test-*|*/setup/test-*|setup/smoke-test-*|*/setup/smoke-test-*) skip_hardcode_check=1 ;;  # issue #499: тест-обвязки setup/ по именной конвенции — их fail-сообщения и grep-паттерны СОДЕРЖАТ литерал как предмет собственной проверки; классовое путевое исключение (не эвристика по строке), остальной setup/ сканируется как прежде.
+            setup/validate-template.sh|*/setup/validate-template.sh) skip_hardcode_check=1 ;;  # WP-544 Д28: тот же класс, что #499 — этот файл сам сканирует репо на автор-специфичные литералы (проверка [1/5]) через строковой массив в for-цикле; свой собственный список паттернов — предмет проверки, не хардкод. Не цитировать литералы буквально в этом комментарии — это же ловит [1/5] в самом validate-fmt-scripts.sh.
+            .claude/hooks/tests/*|*/.claude/hooks/tests/*) skip_hardcode_check=1 ;;  # issue #759: фикстуры хук-тестов — тот же класс, что scripts/tests/.
+        esac
+        if [ "$skip_hardcode_check" != "1" ]; then
         if grep -q "$AUTHOR_GOV_REPO" "$f" 2>/dev/null; then
             bad_lines=$(grep -n "$AUTHOR_GOV_REPO" "$f" \
                 | grep -v '^\s*#\|^[0-9]*:\s*#' \
@@ -139,6 +156,43 @@ if [[ "$MODE" != "settings-json" ]]; then
                                 continue
                             fi
                         fi
+                        # issue #665: bare literal as a positional fallback-default
+                        # argument to a helper call, split across lines —
+                        # `_selected_env(values, "IWE_GOVERNANCE_REPO",
+                        # "GOVERNANCE_REPO", "DS-strategy")`. The literal's own line
+                        # carries no env-var reference, but the call it belongs to
+                        # does (same "structural override, not a mystery hardcode"
+                        # reasoning as the $IWE_GOVERNANCE_REPO exception above).
+                        # Safe only when the override key literal sits in the SAME
+                        # call — walk back through the immediately preceding,
+                        # unbroken run of non-blank, non-comment lines (a blank or
+                        # `#`-only line marks a statement boundary) and stop looking
+                        # there. Cold-context review finding: a plain fixed-size
+                        # lookback window matched an unrelated `#`-comment mention of
+                        # "IWE_GOVERNANCE_REPO" a few lines above a genuine hardcode
+                        # in a different call — the statement-boundary stop closes
+                        # that false negative.
+                        if echo "$bl" | grep -qE '^[0-9]*:[[:space:]]*"'"$AUTHOR_GOV_REPO"'"[[:space:]]*,?[[:space:]]*\)?[[:space:]]*,?[[:space:]]*$'; then
+                            lineno="${bl%%:*}"
+                            found_override_key=0
+                            check_line=$((lineno - 1))
+                            steps=0
+                            while [ "$check_line" -ge 1 ] && [ "$steps" -lt 6 ]; do
+                                context_line=$(sed -n "${check_line}p" "$f" 2>/dev/null)
+                                if echo "$context_line" | grep -qE '^[[:space:]]*$|^[[:space:]]*#'; then
+                                    break
+                                fi
+                                if echo "$context_line" | grep -qE '"IWE_GOVERNANCE_REPO"'; then
+                                    found_override_key=1
+                                    break
+                                fi
+                                check_line=$((check_line - 1))
+                                steps=$((steps + 1))
+                            done
+                            if [ "$found_override_key" -eq 1 ]; then
+                                continue
+                            fi
+                        fi
                     fi
                     echo "$bl"
                 done)
@@ -149,8 +203,7 @@ if [[ "$MODE" != "settings-json" ]]; then
                 errors=$((errors + 1))
             fi
         fi
-            ;;
-        esac
+        fi
 
         # Проверка 4: set -e + ((VAR++)) без || true → silent exit при VAR==0 (B8 gap)
         # $((VAR + 1)) — безопасно (арифметика, не команда).
